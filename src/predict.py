@@ -1,6 +1,6 @@
 import cv2
 import pickle
-from capture import get_frame, draw_landmarks, hands
+from capture import get_frame, draw_landmarks
 from landmarks import extract_normalized_landmarks, get_landmarks_from_result
 from smooth import PredictionSmoother
 
