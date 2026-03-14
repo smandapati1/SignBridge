@@ -1,7 +1,7 @@
 import csv
 import os
 import cv2
-from capture import hands
+from capture import detector, get_frame, draw_landmarks
 from landmarks import extract_normalized_landmarks
 
 SIGNS = list('ABCDEFGHIJKLMNOPQRSTUVWXYZ')

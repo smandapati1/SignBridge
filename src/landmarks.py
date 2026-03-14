@@ -1,15 +1,15 @@
 import numpy as np
 
 def extract_landmarks(hand_landmarks):
-    """Raw extraction — position dependent, use for debugging/visualizing."""
+    """Raw extraction."""
     landmarks = []
-    for lm in hand_landmarks.landmark:
-        landmarks.extend([lm.x, lm.y, lm.z])  # 21 points × 3 = 63 values
+    for lm in hand_landmarks:
+        landmarks.extend([lm.x, lm.y, lm.z])
     return np.array(landmarks)
 
 def extract_normalized_landmarks(hand_landmarks):
-    """Normalized — use this for model training and inference."""
-    pts = [(lm.x, lm.y, lm.z) for lm in hand_landmarks.landmark]
+    """Normalized — use this for training and inference."""
+    pts = [(lm.x, lm.y, lm.z) for lm in hand_landmarks]
     wrist = pts[0]
     pts = [(p[0]-wrist[0], p[1]-wrist[1], p[2]-wrist[2]) for p in pts]
     max_dist = max(np.sqrt(p[0]**2 + p[1]**2 + p[2]**2) for p in pts)
@@ -17,7 +17,7 @@ def extract_normalized_landmarks(hand_landmarks):
     return np.array(pts).flatten()
 
 def get_landmarks_from_result(result):
-    """Safely pulls the first hand from a MediaPipe result."""
-    if result.multi_hand_landmarks:
-        return result.multi_hand_landmarks[0]
+    """Safely pulls the first hand from a result."""
+    if result.hand_landmarks:
+        return result.hand_landmarks[0]
     return None
