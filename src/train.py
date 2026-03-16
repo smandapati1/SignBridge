@@ -11,8 +11,8 @@ MODEL_OUT = 'data/models/asl_model.pkl'
 def train():
     # Load data
     df = pd.read_csv(DATA_FILE, header=None)
-    X = df.iloc[:, 1:].values   # 63 landmark features
-    y = df.iloc[:, 0].values    # sign labels
+    X = df.iloc[:, 1:].to_numpy()
+    y = df.iloc[:, 0].to_numpy() # sign labels
 
     print(f'Loaded {len(X)} samples across {len(set(y))} signs')
 
