@@ -1,0 +1,1002 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SignBridge — Real-time ASL Recognition</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #f7f7f5;
+    --surface: #ffffff;
+    --surface-2: #f0f0ed;
+    --border: #e4e4e0;
+    --border-strong: #d0d0ca;
+    --text-primary: #1a1a18;
+    --text-secondary: #6b6b65;
+    --text-muted: #9d9d96;
+    --accent: #1a6b4a;
+    --accent-light: #e8f5ef;
+    --accent-mid: #2d9e6e;
+    --danger: #c0392b;
+    --warning: #d97706;
+    --font-sans: 'DM Sans', sans-serif;
+    --font-mono: 'DM Mono', monospace;
+    --radius: 12px;
+    --radius-sm: 8px;
+    --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04);
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    font-family: var(--font-sans);
+    color: var(--text-primary);
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Layout ── */
+  .app {
+    min-height: 100vh;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+  }
+
+  /* ── Header ── */
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 32px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .logo-mark {
+    width: 32px;
+    height: 32px;
+    background: var(--accent);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .logo-mark svg { width: 18px; height: 18px; }
+
+  .logo-text {
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: -0.3px;
+  }
+
+  .logo-sub {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-weight: 400;
+    margin-left: 2px;
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .status-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 99px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+  }
+
+  .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    transition: background 0.3s;
+  }
+
+  .status-dot.connected { background: var(--accent-mid); animation: pulse-dot 2s infinite; }
+  .status-dot.error { background: var(--danger); }
+
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* ── Main content ── */
+  main {
+    padding: 24px 32px;
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    grid-template-rows: auto auto;
+    gap: 20px;
+    max-width: 1280px;
+    margin: 0 auto;
+    width: 100%;
+  }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+
+  .card-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .card-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .card-body { padding: 20px; }
+
+  /* ── Video panel ── */
+  .video-card {
+    grid-row: 1 / 3;
+  }
+
+  .video-wrap {
+    position: relative;
+    background: #0d0d0b;
+    border-radius: 0 0 var(--radius) var(--radius);
+    overflow: hidden;
+    aspect-ratio: 4/3;
+  }
+
+  #videoFeed {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .video-placeholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: rgba(255,255,255,0.3);
+  }
+
+  .video-placeholder svg { width: 48px; height: 48px; opacity: 0.4; }
+  .video-placeholder p { font-size: 13px; }
+
+  .video-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .prediction-badge {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(10,10,8,0.82);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 14px;
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-width: 220px;
+  }
+
+  .pred-letter {
+    font-size: 48px;
+    font-weight: 600;
+    color: #ffffff;
+    font-family: var(--font-sans);
+    line-height: 1;
+    min-width: 40px;
+    text-align: center;
+    transition: all 0.15s ease;
+  }
+
+  .pred-letter.flash {
+    color: #4ade80;
+    transform: scale(1.1);
+  }
+
+  .pred-divider {
+    width: 1px;
+    height: 40px;
+    background: rgba(255,255,255,0.15);
+  }
+
+  .pred-meta { display: flex; flex-direction: column; gap: 6px; }
+
+  .pred-conf-label {
+    font-size: 10px;
+    color: rgba(255,255,255,0.35);
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .conf-bar-track {
+    width: 100px;
+    height: 4px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .conf-bar-fill {
+    height: 100%;
+    background: #4ade80;
+    border-radius: 2px;
+    transition: width 0.25s ease;
+    width: 0%;
+  }
+
+  .conf-value {
+    font-size: 12px;
+    color: rgba(255,255,255,0.7);
+    font-family: var(--font-mono);
+    font-weight: 500;
+  }
+
+  .fps-badge {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: rgba(10,10,8,0.7);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 11px;
+    color: rgba(255,255,255,0.4);
+    font-family: var(--font-mono);
+  }
+
+  .rec-indicator {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(10,10,8,0.7);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 11px;
+    color: rgba(255,255,255,0.5);
+    font-family: var(--font-mono);
+  }
+
+  .rec-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #4ade80;
+    animation: pulse-dot 1.5s infinite;
+  }
+
+  /* ── Output panel ── */
+  .output-display {
+    min-height: 80px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 16px;
+    font-size: 26px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--text-primary);
+    word-break: break-all;
+    line-height: 1.4;
+    position: relative;
+  }
+
+  .cursor-blink {
+    display: inline-block;
+    width: 2px;
+    height: 26px;
+    background: var(--accent);
+    margin-left: 2px;
+    vertical-align: middle;
+    animation: blink 1s step-end infinite;
+  }
+
+  @keyframes blink { 0%,100%{opacity:1;} 50%{opacity:0;} }
+
+  .output-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-strong);
+    background: var(--surface);
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 500;
+    font-family: var(--font-sans);
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+
+  .btn:hover { background: var(--surface-2); border-color: var(--border-strong); }
+  .btn:active { transform: scale(0.98); }
+
+  .btn-accent {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #ffffff;
+  }
+
+  .btn-accent:hover { background: #155a3d; border-color: #155a3d; }
+
+  .btn-danger {
+    color: var(--danger);
+    border-color: #fca5a5;
+    background: #fff5f5;
+  }
+
+  .btn-danger:hover { background: #fee2e2; }
+
+  .btn-tts {
+    background: var(--accent-light);
+    border-color: #a7d9c1;
+    color: var(--accent);
+  }
+
+  .btn-tts:hover { background: #d1ece0; }
+
+  .btn-tts.speaking {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+  }
+
+  /* ── Confidence candidates ── */
+  .candidates { display: flex; flex-direction: column; gap: 8px; }
+
+  .candidate {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .cand-letter {
+    font-size: 13px;
+    font-weight: 500;
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
+    width: 18px;
+  }
+
+  .cand-letter.top { color: var(--accent); }
+
+  .cand-track {
+    flex: 1;
+    height: 5px;
+    background: var(--surface-2);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .cand-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s ease;
+  }
+
+  .cand-fill.top { background: var(--accent-mid); }
+  .cand-fill.second { background: #94a3b8; }
+  .cand-fill.third { background: #cbd5e1; }
+  .cand-fill.fourth { background: #e2e8f0; }
+
+  .cand-pct {
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    width: 34px;
+    text-align: right;
+  }
+
+  /* ── Keyboard shortcuts ── */
+  .shortcuts {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+
+  .shortcut {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    background: var(--surface-2);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+  }
+
+  kbd {
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    padding: 2px 7px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-primary);
+    box-shadow: 0 1px 0 var(--border-strong);
+    white-space: nowrap;
+  }
+
+  .shortcut-desc {
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  /* ── Sign reference chart ── */
+  .sign-chart {
+    grid-column: 1 / -1;
+  }
+
+  .signs-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(58px, 1fr));
+    gap: 8px;
+  }
+
+  .sign-tile {
+    background: var(--surface-2);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px 6px 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+    position: relative;
+  }
+
+  .sign-tile:hover {
+    border-color: var(--accent-mid);
+    background: var(--accent-light);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+  }
+
+  .sign-tile.active {
+    border-color: var(--accent);
+    background: var(--accent-light);
+    box-shadow: 0 0 0 3px rgba(26,107,74,0.12);
+  }
+
+  .sign-letter {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+    line-height: 1;
+  }
+
+  .sign-tile.active .sign-letter { color: var(--accent); }
+
+  .sign-hand {
+    font-size: 22px;
+    line-height: 1;
+  }
+
+  .sign-desc {
+    font-size: 9px;
+    color: var(--text-muted);
+    text-align: center;
+    line-height: 1.3;
+  }
+
+  /* ── Footer ── */
+  footer {
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    padding: 12px 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .footer-left {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+  }
+
+  .footer-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .footer-stat {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .footer-stat span { color: var(--text-secondary); font-weight: 500; }
+
+  /* ── Toast ── */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(80px);
+    background: var(--text-primary);
+    color: white;
+    padding: 10px 20px;
+    border-radius: 99px;
+    font-size: 13px;
+    font-weight: 500;
+    transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
+    z-index: 999;
+    white-space: nowrap;
+  }
+
+  .toast.show { transform: translateX(-50%) translateY(0); }
+
+  /* ── Responsive ── */
+  @media (max-width: 900px) {
+    main {
+      grid-template-columns: 1fr;
+      padding: 16px;
+    }
+    .video-card { grid-row: auto; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- Header -->
+  <header>
+    <div class="logo">
+      <div class="logo-mark">
+        <svg viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M9 2C6 2 4 4 4 6.5c0 1.5.7 2.8 1.8 3.7L9 16l3.2-5.8C13.3 9.3 14 8 14 6.5 14 4 12 2 9 2z" fill="white" opacity="0.9"/>
+          <circle cx="9" cy="6.5" r="1.8" fill="#1a6b4a"/>
+        </svg>
+      </div>
+      <div>
+        <div class="logo-text">SignBridge <span class="logo-sub">ASL Engine</span></div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="status-pill" id="statusPill">
+        <div class="status-dot" id="statusDot"></div>
+        <span id="statusText">Disconnected</span>
+      </div>
+      <button class="btn btn-accent" id="connectBtn" onclick="toggleConnection()">Connect</button>
+    </div>
+  </header>
+
+  <!-- Main -->
+  <main>
+
+    <!-- Video Panel -->
+    <div class="card video-card">
+      <div class="card-header">
+        <span class="card-title">Live feed</span>
+        <span style="font-size:12px;color:var(--text-muted);font-family:var(--font-mono);">MediaPipe HandLandmarker</span>
+      </div>
+      <div class="video-wrap">
+        <div class="video-placeholder" id="videoPlaceholder">
+          <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="6" y="12" width="36" height="26" rx="4" stroke="currentColor" stroke-width="2"/>
+            <circle cx="24" cy="25" r="6" stroke="currentColor" stroke-width="2"/>
+            <path d="M18 12V10a2 2 0 012-2h8a2 2 0 012 2v2" stroke="currentColor" stroke-width="2"/>
+          </svg>
+          <p>Connect to start live recognition</p>
+        </div>
+        <img id="videoFeed" src="" alt="Live feed" style="display:none; width:100%; height:100%; object-fit:cover;">
+        <div class="video-overlay">
+          <div class="rec-indicator" id="recIndicator" style="display:none;">
+            <div class="rec-dot"></div>
+            <span>LIVE</span>
+          </div>
+          <div class="fps-badge" id="fpsBadge" style="display:none;">-- fps</div>
+          <div class="prediction-badge" id="predBadge" style="display:none;">
+            <div class="pred-letter" id="predLetter">—</div>
+            <div class="pred-divider"></div>
+            <div class="pred-meta">
+              <div class="pred-conf-label">Confidence</div>
+              <div class="conf-bar-track">
+                <div class="conf-bar-fill" id="confFill"></div>
+              </div>
+              <div class="conf-value" id="confValue">—</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right panel -->
+    <div style="display:flex; flex-direction:column; gap:16px;">
+
+      <!-- Output -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Output</span>
+          <span style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);" id="wordCount">0 letters</span>
+        </div>
+        <div class="card-body">
+          <div class="output-display" id="outputDisplay">
+            <span id="outputText"></span><span class="cursor-blink"></span>
+          </div>
+          <div class="output-actions">
+            <button class="btn btn-tts" id="ttsBtn" onclick="speakOutput()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 010 14.14M15.54 8.46a5 5 0 010 7.07"/></svg>
+              Speak
+            </button>
+            <button class="btn" onclick="addSpace()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 19h8M5 12h14"/></svg>
+              Space
+            </button>
+            <button class="btn" onclick="deleteLast()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 4H8l-7 8 7 8h13a2 2 0 002-2V6a2 2 0 00-2-2z"/><line x1="18" y1="9" x2="13" y2="14"/><line x1="13" y1="9" x2="18" y2="14"/></svg>
+              Delete
+            </button>
+            <button class="btn btn-danger" onclick="clearOutput()">Clear</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Candidates -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Top candidates</span>
+        </div>
+        <div class="card-body">
+          <div class="candidates" id="candidates">
+            <div style="color:var(--text-muted);font-size:13px;">Waiting for prediction...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Shortcuts -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Keyboard shortcuts</span>
+        </div>
+        <div class="card-body" style="padding:14px;">
+          <div class="shortcuts">
+            <div class="shortcut"><kbd>Space</kbd><span class="shortcut-desc">Commit letter</span></div>
+            <div class="shortcut"><kbd>Backspace</kbd><span class="shortcut-desc">Delete last</span></div>
+            <div class="shortcut"><kbd>Enter</kbd><span class="shortcut-desc">Speak output</span></div>
+            <div class="shortcut"><kbd>Esc</kbd><span class="shortcut-desc">Clear all</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Sign Reference Chart -->
+    <div class="card sign-chart">
+      <div class="card-header">
+        <span class="card-title">ASL fingerspelling reference</span>
+        <span style="font-size:12px;color:var(--text-muted);">Click any sign to add it to output</span>
+      </div>
+      <div class="card-body">
+        <div class="signs-grid" id="signsGrid"></div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer>
+    <div class="footer-left">SignBridge v1.0 — Open Source Accessibility Research</div>
+    <div class="footer-right">
+      <div class="footer-stat">Session letters: <span id="sessionCount">0</span></div>
+      <div class="footer-stat">Model: <span>Random Forest</span></div>
+      <div class="footer-stat">Landmarks: <span>21pt × 3D</span></div>
+    </div>
+  </footer>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── ASL sign data ──
+const ASL_SIGNS = [
+  { l:'A', e:'✊', d:'Fist, thumb side' },
+  { l:'B', e:'🖐', d:'Flat hand' },
+  { l:'C', e:'🤙', d:'Curved hand' },
+  { l:'D', e:'☝️', d:'Index up, curve' },
+  { l:'E', e:'🤜', d:'Fingers bent' },
+  { l:'F', e:'👌', d:'OK shape' },
+  { l:'G', e:'👈', d:'Point sideways' },
+  { l:'H', e:'✌️', d:'Two fingers side' },
+  { l:'I', e:'🤙', d:'Pinky up' },
+  { l:'J', e:'🤙', d:'Pinky + J motion' },
+  { l:'K', e:'✌️', d:'Index + middle up' },
+  { l:'L', e:'👆', d:'L shape' },
+  { l:'M', e:'✊', d:'3 fingers over thumb' },
+  { l:'N', e:'✊', d:'2 fingers over thumb' },
+  { l:'O', e:'👌', d:'All fingers round' },
+  { l:'P', e:'👇', d:'K pointing down' },
+  { l:'Q', e:'👇', d:'G pointing down' },
+  { l:'R', e:'🤞', d:'Fingers crossed' },
+  { l:'S', e:'✊', d:'Fist, thumb over' },
+  { l:'T', e:'✊', d:'Thumb between' },
+  { l:'U', e:'✌️', d:'Two fingers up' },
+  { l:'V', e:'✌️', d:'V / peace sign' },
+  { l:'W', e:'🖖', d:'Three fingers up' },
+  { l:'X', e:'☝️', d:'Index hooked' },
+  { l:'Y', e:'🤙', d:'Pinky + thumb out' },
+  { l:'Z', e:'☝️', d:'Index draws Z' },
+];
+
+// ── State ──
+let socket = null;
+let connected = false;
+let outputText = '';
+let currentPred = null;
+let sessionCount = 0;
+
+// ── Build sign chart ──
+const grid = document.getElementById('signsGrid');
+ASL_SIGNS.forEach(sign => {
+  const tile = document.createElement('div');
+  tile.className = 'sign-tile';
+  tile.id = `tile-${sign.l}`;
+  tile.innerHTML = `
+    <div class="sign-letter">${sign.l}</div>
+    <div class="sign-hand">${sign.e}</div>
+    <div class="sign-desc">${sign.d}</div>
+  `;
+  tile.onclick = () => commitLetter(sign.l);
+  grid.appendChild(tile);
+});
+
+// ── Socket connection ──
+function toggleConnection() {
+  if (connected) disconnect();
+  else connect();
+}
+
+function connect() {
+  socket = io();
+
+  socket.on('connect', () => {
+    connected = true;
+    setStatus('connected', 'Connected');
+    document.getElementById('connectBtn').textContent = 'Disconnect';
+    document.getElementById('videoPlaceholder').style.display = 'none';
+    document.getElementById('videoFeed').style.display = 'block';
+    document.getElementById('recIndicator').style.display = 'flex';
+    document.getElementById('fpsBadge').style.display = 'block';
+    document.getElementById('predBadge').style.display = 'flex';
+    showToast('Connected to SignBridge server');
+  });
+
+  socket.on('disconnect', () => {
+    connected = false;
+    setStatus('', 'Disconnected');
+    document.getElementById('connectBtn').textContent = 'Connect';
+    document.getElementById('videoPlaceholder').style.display = 'flex';
+    document.getElementById('videoFeed').style.display = 'none';
+    document.getElementById('recIndicator').style.display = 'none';
+    document.getElementById('fpsBadge').style.display = 'none';
+    document.getElementById('predBadge').style.display = 'none';
+  });
+
+  // Receive video frame as base64
+  socket.on('frame', (data) => {
+    document.getElementById('videoFeed').src = 'data:image/jpeg;base64,' + data.frame;
+    document.getElementById('fpsBadge').textContent = (data.fps || 30) + ' fps';
+  });
+
+  // Receive prediction
+  socket.on('prediction', (data) => {
+    updatePrediction(data);
+  });
+}
+
+function disconnect() {
+  if (socket) socket.disconnect();
+}
+
+function setStatus(state, text) {
+  const dot = document.getElementById('statusDot');
+  const label = document.getElementById('statusText');
+  dot.className = 'status-dot ' + state;
+  label.textContent = text;
+}
+
+// ── Prediction update ──
+function updatePrediction(data) {
+  const { letter, confidence, candidates } = data;
+  currentPred = letter;
+
+  // Main badge
+  const predEl = document.getElementById('predLetter');
+  predEl.textContent = letter || '—';
+  predEl.classList.add('flash');
+  setTimeout(() => predEl.classList.remove('flash'), 150);
+
+  const conf = confidence || 0;
+  document.getElementById('confFill').style.width = (conf * 100) + '%';
+  document.getElementById('confValue').textContent = Math.round(conf * 100) + '%';
+
+  // Highlight tile
+  document.querySelectorAll('.sign-tile').forEach(t => t.classList.remove('active'));
+  if (letter) {
+    const tile = document.getElementById(`tile-${letter}`);
+    if (tile) tile.classList.add('active');
+  }
+
+  // Candidates
+  if (candidates && candidates.length) {
+    const colors = ['top', 'second', 'third', 'fourth'];
+    document.getElementById('candidates').innerHTML = candidates.slice(0,4).map((c, i) => `
+      <div class="candidate">
+        <span class="cand-letter ${i===0?'top':''}">${c.letter}</span>
+        <div class="cand-track">
+          <div class="cand-fill ${colors[i]}" style="width:${Math.round(c.confidence*100)}%"></div>
+        </div>
+        <span class="cand-pct">${Math.round(c.confidence*100)}%</span>
+      </div>
+    `).join('');
+  }
+}
+
+// ── Output management ──
+function commitLetter(letter) {
+  if (!letter) letter = currentPred;
+  if (!letter) return;
+  outputText += letter;
+  sessionCount++;
+  document.getElementById('sessionCount').textContent = sessionCount;
+  updateOutput();
+  showToast(`Added: ${letter}`);
+}
+
+function addSpace() {
+  outputText += ' ';
+  updateOutput();
+}
+
+function deleteLast() {
+  outputText = outputText.slice(0, -1);
+  updateOutput();
+}
+
+function clearOutput() {
+  outputText = '';
+  updateOutput();
+  showToast('Output cleared');
+}
+
+function updateOutput() {
+  document.getElementById('outputText').textContent = outputText;
+  const count = outputText.replace(/\s/g,'').length;
+  document.getElementById('wordCount').textContent = count + (count === 1 ? ' letter' : ' letters');
+}
+
+// ── Text to speech ──
+function speakOutput() {
+  if (!outputText.trim()) { showToast('Nothing to speak'); return; }
+  const btn = document.getElementById('ttsBtn');
+  btn.classList.add('speaking');
+  btn.textContent = 'Speaking...';
+  const utterance = new SpeechSynthesisUtterance(outputText);
+  utterance.rate = 0.9;
+  utterance.onend = () => {
+    btn.classList.remove('speaking');
+    btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 010 14.14M15.54 8.46a5 5 0 010 7.07"/></svg> Speak`;
+  };
+  window.speechSynthesis.speak(utterance);
+}
+
+// ── Toast ──
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+// ── Keyboard shortcuts ──
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.code === 'Space') { e.preventDefault(); commitLetter(currentPred); }
+  if (e.code === 'Backspace') { e.preventDefault(); deleteLast(); }
+  if (e.code === 'Enter') { e.preventDefault(); speakOutput(); }
+  if (e.code === 'Escape') { e.preventDefault(); clearOutput(); }
+});
+
+// ── Demo mode (no backend) ──
+// Remove this block when Flask backend is running
+(function demoMode() {
+  const signs = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+  let i = 0;
+  setStatus('connected', 'Demo mode');
+  document.getElementById('connectBtn').textContent = 'Demo';
+  document.getElementById('recIndicator').style.display = 'flex';
+  document.getElementById('fpsBadge').style.display = 'block';
+  document.getElementById('fpsBadge').textContent = '30 fps';
+  document.getElementById('predBadge').style.display = 'flex';
+  document.getElementById('videoPlaceholder').innerHTML = `
+    <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:48px;height:48px;opacity:0.2">
+      <rect x="6" y="12" width="36" height="26" rx="4" stroke="white" stroke-width="2"/>
+    </svg>
+    <p style="color:rgba(255,255,255,0.25);font-size:12px;">Demo mode — connect Flask backend for live feed</p>
+  `;
+
+  setInterval(() => {
+    const letter = signs[i % signs.length];
+    const conf = 0.82 + Math.random() * 0.17;
+    const others = signs.filter(s => s !== letter).sort(() => Math.random()-0.5).slice(0,3);
+    updatePrediction({
+      letter,
+      confidence: conf,
+      candidates: [
+        { letter, confidence: conf },
+        ...others.map(l => ({ letter: l, confidence: Math.random() * 0.18 }))
+      ].sort((a,b) => b.confidence - a.confidence)
+    });
+    i++;
+  }, 1200);
+})();
+</script>
+</body>
+</html>
