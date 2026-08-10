@@ -1,0 +1,924 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SignBridge — Real-time ASL Recognition</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f7f7f5; --surface: #ffffff; --surface-2: #f0f0ed;
+    --border: #e4e4e0; --border-strong: #d0d0ca;
+    --text-primary: #1a1a18; --text-secondary: #6b6b65; --text-muted: #9d9d96;
+    --accent: #1a6b4a; --accent-light: #e8f5ef; --accent-mid: #2d9e6e;
+    --danger: #c0392b;
+    --font-sans: 'DM Sans', sans-serif; --font-mono: 'DM Mono', monospace;
+    --radius: 12px; --radius-sm: 8px;
+    --shadow: 0 1px 3px rgba(0,0,0,0.06); --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+  }
+  html, body { height: 100%; background: var(--bg); font-family: var(--font-sans); color: var(--text-primary); font-size: 15px; -webkit-font-smoothing: antialiased; }
+  .app { min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
+
+  /* Header */
+  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 32px; height: 60px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; gap: 16px; }
+  .logo { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .logo-mark { width: 32px; height: 32px; background: var(--accent); border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+  .logo-text { font-size: 17px; font-weight: 600; letter-spacing: -0.3px; }
+  .logo-sub { font-size: 12px; color: var(--text-muted); font-weight: 400; margin-left: 2px; }
+  .header-center { flex: 1; display: flex; justify-content: center; }
+  .header-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+
+  /* Mode toggle */
+  .mode-toggle { display: flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 99px; padding: 3px; gap: 2px; }
+  .mode-btn { padding: 6px 18px; border-radius: 99px; border: none; background: transparent; font-size: 13px; font-weight: 500; font-family: var(--font-sans); color: var(--text-secondary); cursor: pointer; transition: all 0.2s; white-space: nowrap; }
+  .mode-btn.active { background: var(--surface); color: var(--text-primary); box-shadow: var(--shadow); }
+
+  /* Status */
+  .status-pill { display: flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 99px; background: var(--surface-2); border: 1px solid var(--border); font-size: 12px; font-weight: 500; color: var(--text-secondary); font-family: var(--font-mono); }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); transition: background 0.3s; }
+  .status-dot.connected { background: var(--accent-mid); animation: pulse-dot 2s infinite; }
+  @keyframes pulse-dot { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
+
+  /* Main grid */
+  main { padding: 24px 32px; display: grid; grid-template-columns: 1fr 380px; grid-template-rows: auto auto; gap: 20px; max-width: 1280px; margin: 0 auto; width: 100%; }
+
+  /* Cards */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+  .card-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; min-height: 53px; }
+  .card-title { font-size: 13px; font-weight: 500; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.06em; }
+  .card-body { padding: 20px; }
+
+  /* Video panel */
+  .video-card { grid-row: 1 / 3; }
+  .video-wrap { position: relative; background: #0d0d0b; border-radius: 0 0 var(--radius) var(--radius); overflow: hidden; aspect-ratio: 4/3; }
+  #videoFeed { width: 100%; height: 100%; object-fit: cover; display: none; transform: scaleX(-1); }
+  #landmarkCanvas { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; transform: scaleX(-1); }
+  .camera-start { margin-top:4px; border-color:rgba(255,255,255,.2); background:rgba(255,255,255,.08); color:white; }
+  .video-placeholder { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: rgba(255,255,255,0.3); }
+  .video-placeholder p { font-size: 13px; text-align: center; padding: 0 24px; line-height: 1.5; }
+
+  /* Word progress bar */
+  .word-progress { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); display: none; align-items: center; gap: 5px; background: rgba(10,10,8,0.85); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 10px 16px; max-width: 90%; flex-wrap: wrap; justify-content: center; }
+  .progress-letter { font-size: 22px; font-weight: 600; color: rgba(255,255,255,0.25); font-family: var(--font-mono); transition: all 0.25s; line-height: 1; }
+  .progress-letter.done { color: rgba(255,255,255,0.55); }
+  .progress-letter.current { color: #4ade80; transform: scale(1.3); text-shadow: 0 0 12px rgba(74,222,128,0.5); }
+
+  /* Prediction badge */
+  .prediction-badge { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(10,10,8,0.85); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; padding: 12px 24px; display: none; align-items: center; gap: 16px; min-width: 220px; }
+  .pred-letter { font-size: 48px; font-weight: 600; color: #fff; line-height: 1; min-width: 40px; text-align: center; transition: all 0.15s; }
+  .pred-letter.flash { color: #4ade80; transform: scale(1.1); }
+  .pred-divider { width: 1px; height: 40px; background: rgba(255,255,255,0.15); }
+  .pred-meta { display: flex; flex-direction: column; gap: 6px; }
+  .pred-conf-label { font-size: 10px; color: rgba(255,255,255,0.35); font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; }
+  .conf-bar-track { width: 100px; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
+  .conf-bar-fill { height: 100%; background: #4ade80; border-radius: 2px; transition: width 0.25s ease; width: 0%; }
+  .conf-value { font-size: 12px; color: rgba(255,255,255,0.7); font-family: var(--font-mono); font-weight: 500; }
+  .fps-badge { position: absolute; top: 12px; right: 12px; background: rgba(10,10,8,0.7); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 3px 8px; font-size: 11px; color: rgba(255,255,255,0.4); font-family: var(--font-mono); display: none; }
+  .rec-indicator { position: absolute; top: 12px; left: 12px; display: none; align-items: center; gap: 6px; background: rgba(10,10,8,0.7); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 4px 10px; font-size: 11px; color: rgba(255,255,255,0.5); font-family: var(--font-mono); }
+  .rec-dot { width: 6px; height: 6px; border-radius: 50%; background: #4ade80; animation: pulse-dot 1.5s infinite; }
+
+  /* Dataset input panel */
+  .dataset-panel { display: none; flex-direction: column; gap: 12px; }
+  .dataset-panel.visible { display: flex; }
+  .input-row { display: flex; gap: 8px; }
+  .word-input { flex: 1; padding: 10px 14px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface-2); font-size: 16px; font-family: var(--font-sans); font-weight: 500; color: var(--text-primary); outline: none; letter-spacing: 0.05em; text-transform: uppercase; transition: border-color 0.15s; }
+  .word-input:focus { border-color: var(--accent-mid); background: var(--surface); }
+  .word-input::placeholder { text-transform: none; font-weight: 400; color: var(--text-muted); font-size: 14px; }
+
+  /* Speed control */
+  .speed-row { display: flex; align-items: center; gap: 10px; }
+  .speed-label { font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+  input[type=range] { flex: 1; accent-color: var(--accent); }
+  .speed-value { font-size: 12px; font-family: var(--font-mono); color: var(--text-secondary); min-width: 32px; text-align: right; }
+
+  /* Sequence preview */
+  .sequence-preview { display: flex; gap: 5px; flex-wrap: wrap; min-height: 36px; align-items: center; }
+  .seq-letter { width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 6px; border: 1px solid var(--border); background: var(--surface-2); font-size: 14px; font-weight: 600; font-family: var(--font-mono); color: var(--text-secondary); transition: all 0.2s; }
+  .seq-letter.current { background: var(--accent); border-color: var(--accent); color: white; transform: scale(1.15); }
+  .seq-letter.done { background: var(--accent-light); border-color: #a7d9c1; color: var(--accent); }
+  .seq-empty { font-size: 13px; color: var(--text-muted); }
+
+  /* Output */
+  .output-display { min-height: 70px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px 16px; font-size: 24px; font-weight: 500; letter-spacing: 0.02em; color: var(--text-primary); word-break: break-all; line-height: 1.4; }
+  .cursor-blink { display: inline-block; width: 2px; height: 24px; background: var(--accent); margin-left: 2px; vertical-align: middle; animation: blink 1s step-end infinite; }
+  @keyframes blink { 0%,100%{opacity:1;} 50%{opacity:0;} }
+  .output-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+
+  /* Buttons */
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border-strong); background: var(--surface); color: var(--text-primary); font-size: 13px; font-weight: 500; font-family: var(--font-sans); cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+  .btn:hover { background: var(--surface-2); }
+  .btn:active { transform: scale(0.98); }
+  .btn-accent { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn-accent:hover { background: #155a3d; border-color: #155a3d; }
+  .btn-accent:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+  .btn-tts { background: var(--accent-light); border-color: #a7d9c1; color: var(--accent); }
+  .btn-tts:hover { background: #d1ece0; }
+  .btn-tts.speaking { background: var(--accent); color: white; border-color: var(--accent); }
+  .btn-danger { color: var(--danger); border-color: #fca5a5; background: #fff5f5; }
+  .btn-danger:hover { background: #fee2e2; }
+
+  /* Candidates */
+  .candidates { display: flex; flex-direction: column; gap: 8px; }
+  .candidate { display: flex; align-items: center; gap: 10px; }
+  .cand-letter { font-size: 13px; font-weight: 500; font-family: var(--font-mono); color: var(--text-secondary); width: 18px; }
+  .cand-letter.top { color: var(--accent); }
+  .cand-track { flex: 1; height: 5px; background: var(--surface-2); border-radius: 3px; overflow: hidden; }
+  .cand-fill { height: 100%; border-radius: 3px; transition: width 0.3s ease; }
+  .cand-fill.c0 { background: var(--accent-mid); }
+  .cand-fill.c1 { background: #94a3b8; }
+  .cand-fill.c2 { background: #cbd5e1; }
+  .cand-fill.c3 { background: #e2e8f0; }
+  .cand-pct { font-size: 11px; font-family: var(--font-mono); color: var(--text-muted); width: 34px; text-align: right; }
+
+  /* Shortcuts */
+  .shortcuts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .shortcut { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: var(--surface-2); border-radius: var(--radius-sm); border: 1px solid var(--border); }
+  kbd { background: var(--surface); border: 1px solid var(--border-strong); border-radius: 4px; padding: 2px 7px; font-family: var(--font-mono); font-size: 11px; font-weight: 500; box-shadow: 0 1px 0 var(--border-strong); white-space: nowrap; }
+  .shortcut-desc { font-size: 12px; color: var(--text-secondary); }
+
+  /* Sign chart */
+  .sign-chart { grid-column: 1 / -1; }
+  .signs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(58px, 1fr)); gap: 8px; }
+  .sign-tile { background: var(--surface-2); border: 1.5px solid var(--border); border-radius: var(--radius-sm); padding: 10px 6px 8px; display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; transition: all 0.15s; }
+  .sign-tile:hover { border-color: var(--accent-mid); background: var(--accent-light); transform: translateY(-1px); box-shadow: var(--shadow-md); }
+  .sign-tile.active { border-color: var(--accent); background: var(--accent-light); box-shadow: 0 0 0 3px rgba(26,107,74,0.12); }
+  .sign-letter { font-size: 18px; font-weight: 600; color: var(--text-primary); line-height: 1; }
+  .sign-tile.active .sign-letter { color: var(--accent); }
+  .sign-hand { width: 36px; height: 40px; display: flex; align-items: center; justify-content: center; }
+  .sign-desc { font-size: 9px; color: var(--text-muted); text-align: center; line-height: 1.3; }
+
+  /* Dataset complete banner */
+  .complete-banner { display: none; align-items: center; gap: 10px; padding: 12px 16px; background: var(--accent-light); border: 1px solid #a7d9c1; border-radius: var(--radius-sm); font-size: 13px; font-weight: 500; color: var(--accent); }
+  .complete-banner.show { display: flex; }
+
+  /* Footer */
+  footer { border-top: 1px solid var(--border); background: var(--surface); padding: 12px 32px; display: flex; align-items: center; justify-content: space-between; }
+  .footer-left { font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); }
+  .footer-right { display: flex; align-items: center; gap: 16px; font-size: 12px; color: var(--text-muted); }
+  .footer-stat span { color: var(--text-secondary); font-weight: 500; }
+
+  /* Toast */
+  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px); background: var(--text-primary); color: white; padding: 10px 20px; border-radius: 99px; font-size: 13px; font-weight: 500; transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1); z-index: 999; white-space: nowrap; }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; padding: 16px; } .video-card { grid-row: auto; } }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <div class="logo">
+      <div class="logo-mark">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+          <path d="M9 2C6 2 4 4 4 6.5c0 1.5.7 2.8 1.8 3.7L9 16l3.2-5.8C13.3 9.3 14 8 14 6.5 14 4 12 2 9 2z" fill="white" opacity="0.9"/>
+          <circle cx="9" cy="6.5" r="1.8" fill="#1a6b4a"/>
+        </svg>
+      </div>
+      <div class="logo-text">SignBridge <span class="logo-sub">ASL Engine</span></div>
+    </div>
+
+    <div class="header-center">
+      <div class="mode-toggle">
+        <button class="mode-btn active" id="liveModeBtn" onclick="switchMode('live')">
+          Live Camera
+        </button>
+        <button class="mode-btn" id="datasetModeBtn" onclick="switchMode('dataset')">
+          Practice Mode
+        </button>
+      </div>
+    </div>
+
+    <div class="header-right">
+      <div class="status-pill">
+        <div class="status-dot" id="statusDot"></div>
+        <span id="statusText">Connecting...</span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- Video Panel -->
+    <div class="card video-card">
+      <div class="card-header">
+        <span class="card-title" id="videoCardTitle">Live feed</span>
+        <span style="font-size:12px;color:var(--text-muted);font-family:var(--font-mono);" id="videoCardSub">MediaPipe HandLandmarker</span>
+      </div>
+      <div class="video-wrap">
+        <div class="video-placeholder" id="videoPlaceholder">
+          <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+            <rect x="6" y="12" width="36" height="26" rx="4" stroke="currentColor" stroke-width="2"/>
+            <circle cx="24" cy="25" r="6" stroke="currentColor" stroke-width="2"/>
+            <path d="M18 12V10a2 2 0 012-2h8a2 2 0 012 2v2" stroke="currentColor" stroke-width="2"/>
+          </svg>
+          <p id="placeholderText">Start your camera to begin real-time recognition.</p>
+          <button class="btn camera-start" id="cameraBtn" onclick="startCamera()">Start camera</button>
+        </div>
+        <video id="videoFeed" autoplay playsinline muted></video>
+        <canvas id="landmarkCanvas"></canvas>
+        <canvas id="captureCanvas" width="480" height="360" style="display:none"></canvas>
+
+        <!-- Live indicators -->
+        <div class="rec-indicator" id="recIndicator">
+          <div class="rec-dot"></div>
+          <span id="recLabel">LIVE</span>
+        </div>
+        <div class="fps-badge" id="fpsBadge">-- fps</div>
+
+        <!-- Word progress (practice mode) -->
+        <div class="word-progress" id="wordProgress"></div>
+
+        <!-- Prediction badge -->
+        <div class="prediction-badge" id="predBadge">
+          <div class="pred-letter" id="predLetter">—</div>
+          <div class="pred-divider"></div>
+          <div class="pred-meta">
+            <div class="pred-conf-label">Confidence</div>
+            <div class="conf-bar-track">
+              <div class="conf-bar-fill" id="confFill"></div>
+            </div>
+            <div class="conf-value" id="confValue">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right panel -->
+    <div style="display:flex; flex-direction:column; gap:16px;">
+
+      <!-- Dataset input (shown in practice mode) -->
+      <div class="card" id="datasetInputCard" style="display:none;">
+        <div class="card-header">
+          <span class="card-title">Sign a word</span>
+          <span style="font-size:11px;color:var(--text-muted);">Guided fingerspelling sequence</span>
+        </div>
+        <div class="card-body" style="display:flex;flex-direction:column;gap:14px;">
+          <div class="input-row">
+            <input class="word-input" type="text" id="wordInput" placeholder="Type a word e.g. HELLO" maxlength="20">
+            <button class="btn btn-accent" id="signBtn" onclick="startDataset()">Practice</button>
+          </div>
+          <div class="speed-row">
+            <span class="speed-label">Speed</span>
+            <input type="range" id="speedSlider" min="0.5" max="3" step="0.5" value="1.5" oninput="updateSpeed()">
+            <span class="speed-value" id="speedVal">1.5s</span>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em;">Sequence</div>
+            <div class="sequence-preview" id="sequencePreview">
+              <span class="seq-empty">Type a word above</span>
+            </div>
+          </div>
+          <div class="complete-banner" id="completeBanner">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+            <span id="completeBannerText">Sequence complete</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Output -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Output</span>
+          <span style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);" id="wordCount">0 letters</span>
+        </div>
+        <div class="card-body">
+          <div class="output-display">
+            <span id="outputText"></span><span class="cursor-blink"></span>
+          </div>
+          <div class="output-actions">
+            <button class="btn btn-tts" id="ttsBtn" onclick="speakOutput()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 010 14.14M15.54 8.46a5 5 0 010 7.07"/></svg>
+              Speak
+            </button>
+            <button class="btn" id="autoBtn" onclick="toggleAutoCommit()">Auto: Off</button>
+            <button class="btn" onclick="addSpace()">Space</button>
+            <button class="btn" onclick="deleteLast()">Delete</button>
+            <button class="btn btn-danger" onclick="clearOutput()">Clear</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Candidates -->
+      <div class="card">
+        <div class="card-header"><span class="card-title">Top candidates</span></div>
+        <div class="card-body">
+          <div class="candidates" id="candidates">
+            <div style="color:var(--text-muted);font-size:13px;">Waiting for prediction...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Shortcuts (live mode only) -->
+      <div class="card" id="shortcutsCard">
+        <div class="card-header"><span class="card-title">Keyboard shortcuts</span></div>
+        <div class="card-body" style="padding:14px;">
+          <div class="shortcuts">
+            <div class="shortcut"><kbd>Space</kbd><span class="shortcut-desc">Commit letter</span></div>
+            <div class="shortcut"><kbd>Backspace</kbd><span class="shortcut-desc">Delete last</span></div>
+            <div class="shortcut"><kbd>Enter</kbd><span class="shortcut-desc">Speak output</span></div>
+            <div class="shortcut"><kbd>Esc</kbd><span class="shortcut-desc">Clear all</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Sign Reference Chart -->
+    <div class="card" style="grid-column: 1 / -1;">
+      <div class="card-header">
+        <span class="card-title">ASL fingerspelling reference</span>
+        <span style="font-size:12px;color:var(--text-muted);">Click any tile to add letter to output</span>
+      </div>
+      <div class="card-body">
+        <div class="signs-grid" id="signsGrid"></div>
+      </div>
+    </div>
+
+  </main>
+
+  <footer>
+    <div class="footer-left">SignBridge v1.0 — Open Source Accessibility Research</div>
+    <div class="footer-right">
+      <div class="footer-stat">Letters committed: <span id="sessionCount">0</span></div>
+      <div class="footer-stat">Model: <span>Random Forest</span></div>
+      <div class="footer-stat">Landmarks: <span>21pt × 3D</span></div>
+    </div>
+  </footer>
+
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// SVG hand shapes for each ASL letter — simplified schematic view
+// Each SVG shows finger positions from a front-facing palm view
+// Fingers: thumb(left), index, middle, ring, pinky(right)
+// 1 = extended up, 0 = folded down, ~ = curved/bent
+const ASL_SIGNS = [
+  {l:'A', d:'Fist, thumb beside', svg: `<svg viewBox="0 0 36 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="8" y="16" width="20" height="18" rx="3" fill="#d1d5db"/>
+    <rect x="4" y="20" width="6" height="10" rx="2" fill="#9ca3af"/>
+    <rect x="8" y="10" width="5" height="10" rx="2" fill="#d1d5db"/>
+    <rect x="14" y="10" width="5" height="10" rx="2" fill="#d1d5db"/>
+    <rect x="20" y="10" width="5" height="10" rx="2" fill="#d1d5db"/>
+    <rect x="26" y="12" width="4" height="9" rx="2" fill="#d1d5db"/>
+  </svg>`},
+  {l:'B', d:'Flat open hand', svg: `<svg viewBox="0 0 36 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="8" y="22" width="20" height="12" rx="3" fill="#d1d5db"/>
+    <rect x="4" y="26" width="6" height="8" rx="2" fill="#9ca3af"/>
+    <rect x="8" y="6" width="5" height="18" rx="2" fill="#6b7280"/>
+    <rect x="14" y="4" width="5" height="20" rx="2" fill="#6b7280"/>
+    <rect x="20" y="5" width="5" height="19" rx="2" fill="#6b7280"/>
+    <rect x="26" y="8" width="4" height="16" rx="2" fill="#6b7280"/>
+  </svg>`},
+  {l:'C', d:'Curved C shape', svg: `<svg viewBox="0 0 36 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M28 8 Q10 8 8 20 Q8 34 28 34" stroke="#6b7280" stroke-width="5" stroke-linecap="round" fill="none"/>
+  </svg>`},
+  {l:'D', d:'Index up, O base', svg: `<svg viewBox="0 0 36 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <ellipse cx="18" cy="28" rx="10" ry="8" fill="#d1d5db"/>
+    <rect x="4" y="24" width="6" height="8" rx="2" fill="#9ca3af"/>
+    <rect x="15" y="6" width="5" height="22" rx="2" fill="#6b7280"/>
+    <rect x="21" y="14" width="4" height="14" rx="2" fill="#d1d5db"/>
+    <rect x="25" y="16" width="4" height="12" rx="2" fill="#d1d5db"/>
+  </svg>`},
+  {l:'E', d:'All fingers bent', svg: `<svg viewBox="0 0 36 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="8" y="20" width="20" height="14" rx="3" fill="#d1d5db"/>
+    <rect x="4" y="22" width="6" height="8" rx="2" fill="#9ca3af"/>
+    <path d="M9 20 Q9 12 13 12 Q13 20 13 20" fill="#9ca3af"/>
+    <path d="M14 20 Q14 10 18 10 Q18 20 18 20" fill="#9ca3af"/>
+    <path d="M19 20 Q19 11 23 11 Q23 20 23 20" fill="#9ca3af"/>
+    <path d="M24 20 Q24 13 27 13 Q27 20 27 20" fill="#9ca3af"/>
+  </svg>`},
+  {l:'F', d:'Index+thumb touch', svg: `<svg viewBox="0 0 36 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="10" y="20" width="18" height="14" rx="3" fill="#d1d5db"/>
+    <circle cx="12" cy="18" r="5" fill="#9ca3af" stroke="white" stroke-width="1"/>
+    <rect x="20" y="6" width="4" height="16" rx="2" fill="#6b7280"/>
+    <rect x="25" y="8" width="4" height="14" rx="2" fill="#6b7280"/>
+    <rect x="6" y="20" width="6" height="10" rx="2" fill="#9ca3af"/>
+  </svg>`},
+  {l:'G', d:'Index+thumb point right', svg: `<svg viewBox="0 0 36 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="6" y="18" width="14" height="12" rx="3" fill="#d1d5db"/>
+    <rect x="18" y="16" width="14" height="5" rx="2" fill="#6b7280"/>
+    <rect x="6" y="22" width="14" height="5" rx="2" fill="#9ca3af"/>
+    <rect x="10" y="22" width="5" height="10" rx="2" fill="#d1d5db"/>
+    <rect x="16" y="22" width="4" height="9" rx="2" fill="#d1d5db"/>
+    <rect x="21" y="23" width="4" height="8" rx="2" fill="#d1d5db"/>
+  </svg>`},
+  {l:'H', d:'Index+middle sideways', svg: `<svg viewBox="0 0 36 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="6" y="20" width="14" height="14" rx="3" fill="#d1d5db"/>
+    <rect x="18" y="16" width="14" height="5" rx="2.5" fill="#6b7280"/>
+    <rect x="18" y="22" width="14" height="5" rx="2.5" fill="#6b7280"/>
+    <rect x="14" y="26" width="5" height="8" rx="2" fill="#d1d5db"/>
+    <rect x="20" y="27" width="4" height="7" rx="2" fill="#d1d5db"/>
+    <rect x="4" y="24" width="6" height="8" rx="2" fill="#9ca3af"/>
+  </svg>`},
+  {l:'I', d:'Pinky up, fist', svg: `<svg viewBox="0 0 36 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="8" y="16" width="20" height="18" rx="3" fill="#d1d5db"/>
+    <rect x="4" y="20" width="6" height="10" rx="2" fill="#9ca3af"/>
+    <rect x="24" y="5" width="4" height="14" rx="2" fill="#6b7280"/>
+  </svg>`},
+  {l:'J', d:'Pinky up, draw J', svg: `<svg viewBox="0 0 36 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="8" y="16" width="20" height="18" rx="3" fill="#d1d5db"/>
+    <rect x="4" y="20" width="6" height="10" rx="2" fill="#9ca3af"/>
+    <rect x="24" y="5" width="4" height="14" rx="2" fill="#6b7280"/>
+    <path d="M26 19 Q30 28 22 32" stroke="#1a6b4a" stroke-width="2" stroke-linecap="round" fill="none" stroke-dasharray="3 2"/>
+  </svg>`},
+  {l:'K', d:'Index+middle up, thumb out', svg: `<svg viewBox="0 0 36 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="8" y="22" width="20" height="12" rx="3" fill="#d1d5db"/>
+    <rect x="4" y="20" width="8" height="6" rx="2" fill="#9ca3af" transform="rotate(-20 4 20)"/>
+    <rect x="12" y="6" width="5" height="18" rx="2" fill="#6b7280"/>
+    <rect x="18" y="8" width="5" height="16" rx="2" fill="#6b7280" transform="rotate(10 18 8)"/>
+    <rect x="23" y="16" width="4" height="10" rx="2" fill="#d1d5db"/>
+  </svg>`},
+  {l:'L', d:'L shape', svg: `<svg viewBox="0 0 36 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="8" y="20" width="20" height="14" rx="3" fill="#d1d5db"/>
+    <rect x="4" y="14" width="10" height="5" rx="2" fill="#9ca3af"/>
+    <rect x="10" y="5" width="5" height="17" rx="2" fill="#6b7280"/>
+    <rect x="16" y="16" width="4" height="10" rx="2" fill="#d1d5db"/>
+    <rect x="21" y="16" width="4" height="10" rx="2" fill="#d1d5db"/>
+    <rect x="26" y="17" width="4" height="9" rx="2" fill="#d1d5db"/>
+  </svg>`},
+  {l:'M', d:'3 fingers over thumb', svg: `<svg viewBox="0 0 36 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="8" y="18" width="20" height="16" rx="3" fill="#d1d5db"/>
+    <rect x="4" y="22" width="16" height="5" rx="2" fill="#9ca3af"/>
+    <path d="M9 18 Q9 11 13 11 Q13 18 13 18" fill="#9ca3af"/>
+    <path d="M14 18 Q14 9 18 9 Q18 18 18 18" fill="#9ca3af"/>
+    <path d="M19 18 Q19 10 23 10 Q23 18 23 18" fill="#9ca3af"/>
+    <rect x="24" y="14" width="4" height="10" rx="2" fill="#d1d5db"/>
+  </svg>`},
+  {l:'N', d:'2 fingers over thumb', svg: `<svg viewBox="0 0 36 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="8" y="18" width="20" height="16" rx="3" fill="#d1d5db"/>
+    <rect x="4" y="22" width="14" height="5" rx="2" fill="#9ca3af"/>
+    <path d="M9 18 Q9 11 13 11 Q13 18 13 18" fill="#9ca3af"/>
+    <path d="M14 18 Q14 9 18 9 Q18 18 18 18" fill="#9ca3af"/>
+    <rect x="19" y="14" width="4" height="10" rx="2" fill="#d1d5db"/>
+    <rect x="24" y="14" width="4" height="10" rx="2" fill="#d1d5db"/>
+  </svg>`},
+  {l:'O', d:'All fingers round', svg: `<svg viewBox="0 0 36 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <ellipse cx="18" cy="22" rx="12" ry="14" stroke="#6b7280" stroke-width="4" fill="none"/>
+  </svg>`},
+  {l:'P', d:'K pointing down', svg: `<svg viewBox="0 0 36 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="8" y="8" width="20" height="12" rx="3" fill="#d1d5db"/>
+    <rect x="4" y="10" width="7" height="5" rx="2" fill="#9ca3af" transform="rotate(20 4 10)"/>
+    <rect x="12" y="18" width="5" height="16" rx="2" fill="#6b7280"/>
+    <rect x="18" y="20" width="5" height="14" rx="2" fill="#6b7280" transform="rotate(-10 18 20)"/>
+    <rect x="23" y="10" width="4" height="10" rx="2" fill="#d1d5db"/>
+  </svg>`},
+  {l:'Q', d:'G pointing down', svg: `<svg viewBox="0 0 36 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="6" y="8" width="14" height="12" rx="3" fill="#d1d5db"/>
+    <rect x="18" y="22" width="14" height="5" rx="2" fill="#9ca3af"/>
+    <rect x="12" y="18" width="5" height="14" rx="2" fill="#6b7280"/>
+    <rect x="10" y="8" width="5" height="12" rx="2" fill="#d1d5db"/>
+    <rect x="16" y="10" width="4" height="10" rx="2" fill="#d1d5db"/>
+    <rect x="21" y="11" width="4" height="9" rx="2" fill="#d1d5db"/>
+  </svg>`},
+  {l:'R', d:'Index+middle crossed', svg: `<svg viewBox="0 0 36 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="8" y="22" width="20" height="12" rx="3" fill="#d1d5db"/>
+    <rect x="4" y="24" width="6" height="8" rx="2" fill="#9ca3af"/>
+    <rect x="12" y="6" width="5" height="18" rx="2" fill="#6b7280" transform="rotate(8 12 6)"/>
+    <rect x="16" y="6" width="5" height="18" rx="2" fill="#6b7280" transform="rotate(-8 16 6)"/>
+    <rect x="22" y="16" width="4" height="10" rx="2" fill="#d1d5db"/>
+    <rect x="27" y="17" width="4" height="9" rx="2" fill="#d1d5db"/>
+  </svg>`},
+  {l:'S', d:'Fist, thumb over', svg: `<svg viewBox="0 0 36 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="8" y="14" width="20" height="20" rx="3" fill="#d1d5db"/>
+    <rect x="6" y="14" width="22" height="6" rx="2" fill="#9ca3af"/>
+    <rect x="8" y="10" width="5" height="8" rx="2" fill="#d1d5db"/>
+    <rect x="14" y="8" width="5" height="8" rx="2" fill="#d1d5db"/>
+    <rect x="20" y="9" width="5" height="7" rx="2" fill="#d1d5db"/>
+    <rect x="25" y="11" width="4" height="6" rx="2" fill="#d1d5db"/>
+  </svg>`},
+  {l:'T', d:'Thumb between fingers', svg: `<svg viewBox="0 0 36 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="8" y="14" width="20" height="20" rx="3" fill="#d1d5db"/>
+    <rect x="10" y="14" width="8" height="6" rx="2" fill="#9ca3af"/>
+    <rect x="8" y="10" width="5" height="8" rx="2" fill="#d1d5db"/>
+    <rect x="14" y="8" width="5" height="8" rx="2" fill="#d1d5db"/>
+    <rect x="20" y="9" width="5" height="8" rx="2" fill="#d1d5db"/>
+    <rect x="25" y="11" width="4" height="7" rx="2" fill="#d1d5db"/>
+  </svg>`},
+  {l:'U', d:'Index+middle up together', svg: `<svg viewBox="0 0 36 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="8" y="22" width="20" height="12" rx="3" fill="#d1d5db"/>
+    <rect x="4" y="24" width="6" height="8" rx="2" fill="#9ca3af"/>
+    <rect x="12" y="6" width="5" height="18" rx="2" fill="#6b7280"/>
+    <rect x="18" y="6" width="5" height="18" rx="2" fill="#6b7280"/>
+    <rect x="24" y="16" width="4" height="10" rx="2" fill="#d1d5db"/>
+    <rect x="28" y="18" width="4" height="8" rx="2" fill="#d1d5db"/>
+  </svg>`},
+  {l:'V', d:'Index+middle spread', svg: `<svg viewBox="0 0 36 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="8" y="22" width="20" height="12" rx="3" fill="#d1d5db"/>
+    <rect x="4" y="24" width="6" height="8" rx="2" fill="#9ca3af"/>
+    <rect x="10" y="6" width="5" height="18" rx="2" fill="#6b7280" transform="rotate(-8 10 6)"/>
+    <rect x="20" y="6" width="5" height="18" rx="2" fill="#6b7280" transform="rotate(8 20 6)"/>
+    <rect x="24" y="16" width="4" height="10" rx="2" fill="#d1d5db"/>
+    <rect x="28" y="18" width="4" height="8" rx="2" fill="#d1d5db"/>
+  </svg>`},
+  {l:'W', d:'Three fingers spread', svg: `<svg viewBox="0 0 36 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="8" y="22" width="20" height="12" rx="3" fill="#d1d5db"/>
+    <rect x="4" y="24" width="6" height="8" rx="2" fill="#9ca3af"/>
+    <rect x="9" y="6" width="5" height="18" rx="2" fill="#6b7280" transform="rotate(-6 9 6)"/>
+    <rect x="15" y="5" width="5" height="19" rx="2" fill="#6b7280"/>
+    <rect x="21" y="6" width="5" height="18" rx="2" fill="#6b7280" transform="rotate(6 21 6)"/>
+    <rect x="27" y="17" width="4" height="9" rx="2" fill="#d1d5db"/>
+  </svg>`},
+  {l:'X', d:'Index finger hooked', svg: `<svg viewBox="0 0 36 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="8" y="20" width="20" height="14" rx="3" fill="#d1d5db"/>
+    <rect x="4" y="22" width="6" height="8" rx="2" fill="#9ca3af"/>
+    <path d="M14 20 Q14 10 18 10 Q22 10 22 16 Q22 20 18 20" fill="#6b7280"/>
+    <rect x="20" y="16" width="4" height="10" rx="2" fill="#d1d5db"/>
+    <rect x="25" y="16" width="4" height="10" rx="2" fill="#d1d5db"/>
+  </svg>`},
+  {l:'Y', d:'Pinky+thumb out', svg: `<svg viewBox="0 0 36 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="10" y="16" width="16" height="16" rx="3" fill="#d1d5db"/>
+    <rect x="2" y="14" width="10" height="5" rx="2" fill="#9ca3af" transform="rotate(-20 2 14)"/>
+    <rect x="24" y="5" width="4" height="14" rx="2" fill="#6b7280"/>
+    <rect x="12" y="16" width="4" height="10" rx="2" fill="#d1d5db"/>
+    <rect x="17" y="16" width="4" height="10" rx="2" fill="#d1d5db"/>
+    <rect x="22" y="17" width="4" height="9" rx="2" fill="#d1d5db"/>
+  </svg>`},
+  {l:'Z', d:'Index draws Z', svg: `<svg viewBox="0 0 36 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="8" y="20" width="20" height="14" rx="3" fill="#d1d5db"/>
+    <rect x="4" y="22" width="6" height="8" rx="2" fill="#9ca3af"/>
+    <rect x="14" y="6" width="5" height="16" rx="2" fill="#6b7280"/>
+    <path d="M10 10 L26 10 L10 20 L26 20" stroke="#1a6b4a" stroke-width="2" stroke-linecap="round" fill="none" stroke-dasharray="3 2"/>
+  </svg>`},
+];
+
+// State
+let currentMode = 'live';
+let currentPred = null;
+let outputText = '';
+let sessionCount = 0;
+let currentWord = [];
+let currentLetterIdx = -1;
+let mediaStream = null;
+let inferenceTimer = null;
+let requestInFlight = false;
+let autoCommit = false;
+let recentPredictions = [];
+let lastAutoLetter = null;
+let lastAutoAt = 0;
+
+const HAND_CONNECTIONS = [
+  [0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],
+  [0,9],[9,10],[10,11],[11,12],[0,13],[13,14],[14,15],[15,16],
+  [0,17],[17,18],[18,19],[19,20],[5,9],[9,13],[13,17]
+];
+
+// Build sign chart
+const grid = document.getElementById('signsGrid');
+ASL_SIGNS.forEach(sign => {
+  const tile = document.createElement('div');
+  tile.className = 'sign-tile';
+  tile.id = `tile-${sign.l}`;
+  tile.innerHTML = `<div class="sign-letter">${sign.l}</div><div class="sign-hand" style="width:36px;height:40px;">${sign.svg}</div><div class="sign-desc">${sign.d}</div>`;
+  tile.onclick = () => commitLetter(sign.l);
+  grid.appendChild(tile);
+});
+
+document.getElementById('wordInput').addEventListener('input', function() {
+  updateSequencePreview(this.value.toUpperCase());
+  document.getElementById('completeBanner').classList.remove('show');
+});
+document.getElementById('wordInput').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') startDataset();
+});
+
+function updateSequencePreview(word) {
+  const preview = document.getElementById('sequencePreview');
+  const letters = word.replace(/[^A-Z]/g, '').split('');
+  if (!letters.length) {
+    preview.innerHTML = '<span class="seq-empty">Type a word above</span>';
+    return;
+  }
+  preview.innerHTML = letters.map((l, i) => `<div class="seq-letter" id="seq-${i}">${l}</div>`).join('');
+}
+
+async function checkBackend() {
+  try {
+    const r = await fetch('/healthz');
+    const data = await r.json();
+    if (!r.ok || !data.model_loaded) throw new Error('Model unavailable');
+    setStatus('connected', 'Ready');
+  } catch (err) {
+    setStatus('', 'Backend unavailable');
+    document.getElementById('placeholderText').textContent = 'The recognition backend is unavailable.';
+  }
+}
+
+function setStatus(state, text) {
+  document.getElementById('statusDot').className = 'status-dot ' + state;
+  document.getElementById('statusText').textContent = text;
+}
+
+async function startCamera() {
+  if (mediaStream) return;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showToast('Camera access is not supported in this browser');
+    return;
+  }
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+      audio: false
+    });
+    const video = document.getElementById('videoFeed');
+    video.srcObject = mediaStream;
+    await video.play();
+    showVideoFeed();
+    setStatus('connected', 'Camera live');
+    inferenceTimer = setInterval(runInference, 150);
+    showToast('Camera started');
+  } catch (err) {
+    setStatus('', 'Camera blocked');
+    document.getElementById('placeholderText').textContent = 'Camera permission was blocked. Allow camera access and try again.';
+    showToast('Camera permission required');
+  }
+}
+
+function stopCamera() {
+  if (inferenceTimer) clearInterval(inferenceTimer);
+  inferenceTimer = null;
+  if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
+  mediaStream = null;
+  requestInFlight = false;
+  hideVideoFeed();
+}
+
+async function runInference() {
+  if (!mediaStream || requestInFlight || currentMode !== 'live') return;
+  const video = document.getElementById('videoFeed');
+  if (video.readyState < 2) return;
+  const canvas = document.getElementById('captureCanvas');
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const image = canvas.toDataURL('image/jpeg', 0.72);
+  requestInFlight = true;
+  const started = performance.now();
+  try {
+    const r = await fetch('/api/predict', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image })
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Prediction failed');
+    const totalMs = performance.now() - started;
+    document.getElementById('fpsBadge').textContent = `${Math.round(1000 / Math.max(totalMs, 1))} fps · ${Math.round(data.latency_ms || totalMs)}ms`;
+    if (data.hand_detected) {
+      drawLandmarks(data.landmarks, data.connections || HAND_CONNECTIONS);
+      updatePrediction(data);
+      handleAutoCommit(data);
+    } else {
+      clearLandmarks();
+      currentPred = null;
+      document.getElementById('predLetter').textContent = '—';
+      document.getElementById('confFill').style.width = '0%';
+      document.getElementById('confValue').textContent = 'No hand';
+      recentPredictions = [];
+    }
+  } catch (err) {
+    setStatus('', 'Prediction error');
+  } finally {
+    requestInFlight = false;
+  }
+}
+
+function drawLandmarks(points, connections) {
+  const canvas = document.getElementById('landmarkCanvas');
+  const wrap = canvas.parentElement.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(wrap.width * dpr);
+  canvas.height = Math.round(wrap.height * dpr);
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(74,222,128,.9)';
+  connections.forEach(([a,b]) => {
+    const p1 = points[a], p2 = points[b];
+    if (!p1 || !p2) return;
+    ctx.beginPath();
+    ctx.moveTo(p1.x * wrap.width, p1.y * wrap.height);
+    ctx.lineTo(p2.x * wrap.width, p2.y * wrap.height);
+    ctx.stroke();
+  });
+  points.forEach((p, i) => {
+    ctx.beginPath();
+    ctx.arc(p.x * wrap.width, p.y * wrap.height, [4,8,12,16,20].includes(i) ? 4.5 : 3, 0, Math.PI * 2);
+    ctx.fillStyle = [4,8,12,16,20].includes(i) ? '#4ade80' : 'rgba(255,255,255,.95)';
+    ctx.fill();
+  });
+}
+
+function clearLandmarks() {
+  const canvas = document.getElementById('landmarkCanvas');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+function showVideoFeed() {
+  document.getElementById('videoFeed').style.display = 'block';
+  document.getElementById('videoPlaceholder').style.display = 'none';
+  document.getElementById('recIndicator').style.display = 'flex';
+  document.getElementById('fpsBadge').style.display = 'block';
+  document.getElementById('predBadge').style.display = 'flex';
+}
+function hideVideoFeed() {
+  document.getElementById('videoFeed').style.display = 'none';
+  document.getElementById('videoPlaceholder').style.display = 'flex';
+  document.getElementById('recIndicator').style.display = 'none';
+  document.getElementById('fpsBadge').style.display = 'none';
+  document.getElementById('predBadge').style.display = 'none';
+  document.getElementById('placeholderText').textContent = 'Start your camera to begin real-time recognition.';
+}
+
+function toggleAutoCommit() {
+  autoCommit = !autoCommit;
+  recentPredictions = [];
+  lastAutoLetter = null;
+  const btn = document.getElementById('autoBtn');
+  btn.textContent = autoCommit ? 'Auto: On' : 'Auto: Off';
+  btn.classList.toggle('btn-accent', autoCommit);
+  showToast(autoCommit ? 'Auto-commit enabled' : 'Auto-commit disabled');
+}
+
+function handleAutoCommit(data) {
+  if (!autoCommit || data.confidence < 0.82) return;
+  recentPredictions.push(data.letter);
+  if (recentPredictions.length > 7) recentPredictions.shift();
+  const stable = recentPredictions.length >= 6 && recentPredictions.slice(-6).every(l => l === data.letter);
+  const now = Date.now();
+  if (stable && (lastAutoLetter !== data.letter || now - lastAutoAt > 1800)) {
+    commitLetter(data.letter);
+    lastAutoLetter = data.letter;
+    lastAutoAt = now;
+    recentPredictions = [];
+  }
+}
+
+function switchMode(mode) {
+  currentMode = mode;
+  document.getElementById('liveModeBtn').classList.toggle('active', mode === 'live');
+  document.getElementById('datasetModeBtn').classList.toggle('active', mode === 'dataset');
+  if (mode === 'live') {
+    document.getElementById('datasetInputCard').style.display = 'none';
+    document.getElementById('shortcutsCard').style.display = 'block';
+    document.getElementById('videoCardTitle').textContent = 'Live feed';
+    document.getElementById('videoCardSub').textContent = 'Browser camera → MediaPipe → Random Forest';
+    document.getElementById('recLabel').textContent = 'LIVE';
+    document.getElementById('wordProgress').style.display = 'none';
+    if (!mediaStream) hideVideoFeed();
+  } else {
+    document.getElementById('datasetInputCard').style.display = 'block';
+    document.getElementById('shortcutsCard').style.display = 'none';
+    document.getElementById('videoCardTitle').textContent = 'Practice mode';
+    document.getElementById('videoCardSub').textContent = 'Guided fingerspelling sequence';
+    document.getElementById('recLabel').textContent = 'PRACTICE';
+    showToast('Practice mode: type a word to step through its signs');
+  }
+}
+
+function startDataset() {
+  const word = document.getElementById('wordInput').value.trim().toUpperCase().replace(/[^A-Z]/g, '');
+  if (!word) { showToast('Enter a word first'); return; }
+  const speed = parseFloat(document.getElementById('speedSlider').value);
+  currentWord = word.split('');
+  currentLetterIdx = 0;
+  updateSequencePreview(word);
+  document.getElementById('wordProgress').style.display = 'flex';
+  document.getElementById('completeBanner').classList.remove('show');
+  document.getElementById('signBtn').disabled = true;
+  document.getElementById('signBtn').textContent = 'Practicing...';
+  let idx = 0;
+  const step = () => {
+    if (idx >= currentWord.length || currentMode !== 'dataset') {
+      document.getElementById('signBtn').disabled = false;
+      document.getElementById('signBtn').textContent = 'Practice';
+      if (idx >= currentWord.length) {
+        const banner = document.getElementById('completeBanner');
+        document.getElementById('completeBannerText').textContent = `"${word}" complete — ${word.length} letters practiced`;
+        banner.classList.add('show');
+        showToast(`Finished "${word}"`);
+      }
+      return;
+    }
+    updateWordProgress(word, idx);
+    updateSequenceHighlight(idx);
+    document.querySelectorAll('.sign-tile').forEach(t => t.classList.remove('active'));
+    const tile = document.getElementById(`tile-${currentWord[idx]}`);
+    if (tile) { tile.classList.add('active'); tile.scrollIntoView({behavior:'smooth', block:'nearest'}); }
+    idx++;
+    setTimeout(step, speed * 1000);
+  };
+  step();
+}
+
+function updateSpeed() {
+  const val = document.getElementById('speedSlider').value;
+  document.getElementById('speedVal').textContent = val + 's';
+}
+function updateWordProgress(word, currentIdx) {
+  const wp = document.getElementById('wordProgress');
+  wp.style.display = 'flex';
+  wp.innerHTML = word.split('').map((l, i) => {
+    let cls = 'progress-letter';
+    if (i < currentIdx) cls += ' done';
+    if (i === currentIdx) cls += ' current';
+    return `<span class="${cls}">${l}</span>`;
+  }).join('');
+}
+function updateSequenceHighlight(idx) {
+  document.querySelectorAll('.seq-letter').forEach((el, i) => {
+    el.classList.remove('current', 'done');
+    if (i < idx) el.classList.add('done');
+    if (i === idx) el.classList.add('current');
+  });
+}
+
+// Prediction update
+function updatePrediction(data) {
+  const { letter, confidence, candidates } = data;
+  currentPred = letter;
+
+  const predEl = document.getElementById('predLetter');
+  predEl.textContent = letter || '—';
+  predEl.classList.add('flash');
+  setTimeout(() => predEl.classList.remove('flash'), 150);
+
+  const conf = confidence || 0;
+  document.getElementById('confFill').style.width = (conf * 100) + '%';
+  document.getElementById('confValue').textContent = Math.round(conf * 100) + '%';
+
+  document.querySelectorAll('.sign-tile').forEach(t => t.classList.remove('active'));
+  if (letter) {
+    const tile = document.getElementById(`tile-${letter}`);
+    if (tile) tile.classList.add('active');
+  }
+
+  if (candidates && candidates.length) {
+    document.getElementById('candidates').innerHTML = candidates.slice(0, 4).map((c, i) => `
+      <div class="candidate">
+        <span class="cand-letter ${i===0?'top':''}">${c.letter}</span>
+        <div class="cand-track"><div class="cand-fill c${i}" style="width:${Math.round(c.confidence*100)}%"></div></div>
+        <span class="cand-pct">${Math.round(c.confidence*100)}%</span>
+      </div>`).join('');
+  }
+}
+
+// Output
+function commitLetter(letter) {
+  if (!letter) letter = currentPred;
+  if (!letter) return;
+  outputText += letter;
+  sessionCount++;
+  document.getElementById('sessionCount').textContent = sessionCount;
+  updateOutput();
+  showToast(`Added: ${letter}`);
+}
+
+function addSpace() { outputText += ' '; updateOutput(); }
+function deleteLast() { outputText = outputText.slice(0, -1); updateOutput(); }
+function clearOutput() { outputText = ''; updateOutput(); showToast('Output cleared'); }
+
+function updateOutput() {
+  document.getElementById('outputText').textContent = outputText;
+  const count = outputText.replace(/\s/g, '').length;
+  document.getElementById('wordCount').textContent = count + (count === 1 ? ' letter' : ' letters');
+}
+
+function speakOutput() {
+  if (!outputText.trim()) { showToast('Nothing to speak'); return; }
+  const btn = document.getElementById('ttsBtn');
+  btn.classList.add('speaking');
+  btn.textContent = 'Speaking...';
+  const u = new SpeechSynthesisUtterance(outputText);
+  u.rate = 0.9;
+  u.onend = () => {
+    btn.classList.remove('speaking');
+    btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 010 14.14M15.54 8.46a5 5 0 010 7.07"/></svg> Speak`;
+  };
+  window.speechSynthesis.speak(u);
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+// Keyboard shortcuts (live mode only)
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') return;
+  if (currentMode !== 'live') return;
+  if (e.code === 'Space') { e.preventDefault(); commitLetter(currentPred); }
+  if (e.code === 'Backspace') { e.preventDefault(); deleteLast(); }
+  if (e.code === 'Enter') { e.preventDefault(); speakOutput(); }
+  if (e.code === 'Escape') { e.preventDefault(); clearOutput(); }
+});
+
+// Start
+checkBackend();
+</script>
+</body>
+</html>

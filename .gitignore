@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+env/
+Scripts/
+Lib/
+Include/
+pyvenv.cfg
+
+# Local ML/data artifacts
+hand_landmarker.task
+data/
+*.csv
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Secrets
+.env
